@@ -8,7 +8,7 @@ from kobserver_core.models import ChartData, Quote
 
 class FakeStockProvider:
     def quote(self, item):
-        return Quote(item=item, price=10.0, change=1.0, change_percent=10.0, session="Regular", source="Yahoo")
+        return Quote(item=item, price=10.0, change=1.0, change_percent=10.0, session="Regular", source="Finnhub")
 
     def chart(self, item, interval, timezone_name):
         return ChartData(
@@ -16,7 +16,7 @@ class FakeStockProvider:
             candles=[],
             interval=interval,
             range_label="Current or previous trading day",
-            source="Yahoo",
+            source="Finnhub",
         )
 
 

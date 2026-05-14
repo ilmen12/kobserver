@@ -4,11 +4,11 @@
 
 It supports:
 
-- US stocks through Yahoo-compatible public data via `yfinance`
-- Hong Kong stocks through Yahoo-compatible public data via `yfinance`
+- US stocks through Finnhub
+- Hong Kong stocks through Finnhub
 - Crypto through Pyth public APIs
 
-The skill is designed to work without API keys. Stock extended-hours data is best-effort. Crypto data avoids Binance, OKX, and other CEX APIs.
+Stock data requires a Finnhub API token. Crypto data avoids Binance, OKX, and other CEX APIs.
 
 ## Features
 
@@ -16,7 +16,7 @@ The skill is designed to work without API keys. Stock extended-hours data is bes
 - Add, remove, and list US stocks, Hong Kong stocks, and crypto symbols.
 - Render the whole watchlist as a quote table PNG.
 - Render a single-symbol candlestick chart PNG.
-- Show stock pre-market and after-hours prices when public data exposes them.
+- Show stock prices and best-effort session notes through Finnhub.
 - Show crypto prices and recent 24h candles through Pyth.
 - Keep rendering partial results when one watchlist item fails.
 - Generate an error PNG for unavailable chart data instead of silently failing.
@@ -50,6 +50,14 @@ brew install uv
 ```
 
 The Python dependencies are declared in `scripts/pyproject.toml` and are installed automatically by `uv run`.
+
+Stock quotes and charts require one of these environment variables:
+
+```bash
+export FINNHUB_API_KEY="your-finnhub-token"
+```
+
+`FINNHUB_TOKEN` is also accepted as an alias. Crypto-only watchlists do not require a Finnhub token.
 
 ## Installation
 
@@ -223,7 +231,12 @@ Chart behavior:
 
 ## Data Source Notes
 
-Stocks use `yfinance`, which depends on Yahoo-compatible public data. Pre-market, after-hours, and overnight fields are best-effort. When the provider omits extended-hours values, Kobserver falls back to regular or latest close data and marks the note.
+Stocks use Finnhub REST APIs:
+
+- Latest quotes use `/quote`.
+- Candlesticks use `/stock/candle`.
+- `FINNHUB_API_KEY` or `FINNHUB_TOKEN` must be set before requesting stock data.
+- Finnhub does not expose separate pre-market and after-hours fields through the quote endpoint used here, so stock session labels are best-effort.
 
 Crypto uses Pyth public APIs:
 
@@ -264,9 +277,9 @@ uv run python kobserver.py --data-dir "$tmp_dir" --json chart crypto:BTC --outpu
 
 ## Limitations
 
-- No API-key provider configuration in the first version.
+- No stored API-key provider configuration; stock tokens are read from environment variables.
 - No portfolio positions, cost basis, P/L, alerts, or notifications.
-- Stock overnight trading is displayed only if public Yahoo-compatible data exposes it.
+- Stock quote and chart availability depends on the configured Finnhub plan and symbol coverage.
 - Pyth crypto support depends on available Pyth symbols and feeds.
 - First-version bundled Pyth feed IDs cover only common assets.
 

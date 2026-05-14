@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import os
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
 
 from kobserver_core.models import Candle, ChartData, Quote, WatchlistItem
 
+FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 HERMES_BASE_URL = "https://hermes.pyth.network"
 PYTH_HISTORY_BASE_URL = "https://pyth.dourolabs.app/v1"
 
@@ -145,40 +147,30 @@ def _candles_from_history(payload: dict, timezone_name: str) -> list[Candle]:
 
 
 class StockProvider:
-    def __init__(self, ticker_factory=None) -> None:
-        if ticker_factory is None:
-            import yfinance as yf
-
-            ticker_factory = yf.Ticker
-        self.ticker_factory = ticker_factory
+    def __init__(self, token: str | None = None, session=None, timeout: int = 20, now_fn=None) -> None:
+        self.token = token or os.environ.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_TOKEN")
+        self.session = session or requests.Session()
+        self.timeout = timeout
+        self.now_fn = now_fn or (lambda: datetime.now(timezone.utc))
 
     def quote(self, item: WatchlistItem) -> Quote:
-        ticker = self.ticker_factory(item.symbol)
-        info = getattr(ticker, "info", {}) or {}
-        previous_close = _float_or_none(info.get("regularMarketPreviousClose") or info.get("previousClose"))
-        regular = _float_or_none(info.get("regularMarketPrice") or info.get("currentPrice"))
-        pre = _float_or_none(info.get("preMarketPrice"))
-        after = _float_or_none(info.get("postMarketPrice"))
+        payload = self._get("/quote", {"symbol": item.symbol})
+        price = _float_or_none(payload.get("c"))
+        previous_close = _float_or_none(payload.get("pc"))
+        change = _float_or_none(payload.get("d"))
+        change_percent = _float_or_none(payload.get("dp"))
+        timestamp = _timestamp_or_none(payload.get("t"))
+        if _empty_finnhub_quote(price, previous_close, timestamp):
+            raise ValueError(f"No usable Finnhub quote for {item.symbol}")
+        session, note = _stock_session(item, timestamp, price)
 
-        session = "Closed"
-        note = "last close"
-        price = regular if regular is not None else previous_close
-        if pre is not None:
-            price = pre
-            session = "Pre"
-            note = "extended"
-        elif after is not None:
-            price = after
-            session = "After"
-            note = "extended"
-        elif regular is not None:
-            session = "Regular"
-            note = ""
-
-        change = None
-        change_percent = None
-        if price is not None and previous_close not in {None, 0}:
+        if price is None and previous_close is not None:
+            price = previous_close
+            session = "Closed"
+            note = "last close"
+        if change is None and price is not None and previous_close not in {None, 0}:
             change = price - previous_close
+        if change_percent is None and change is not None and previous_close not in {None, 0}:
             change_percent = change / previous_close * 100
 
         return Quote(
@@ -188,23 +180,49 @@ class StockProvider:
             change_percent=change_percent,
             session=session,
             note=note,
-            source="Yahoo",
+            timestamp=timestamp,
+            source="Finnhub",
         )
 
     def chart(self, item: WatchlistItem, interval: str, timezone_name: str) -> ChartData:
-        ticker = self.ticker_factory(item.symbol)
-        frame = ticker.history(period="1d", interval=interval, prepost=True)
-        if frame.empty:
-            frame = ticker.history(period="5d", interval=interval, prepost=True)
-            frame = _latest_session_frame(frame)
-        candles = _candles_from_yfinance(frame, timezone_name)
+        now = self.now_fn()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(timezone.utc)
+        start = now - timedelta(days=5)
+        resolution = _finnhub_resolution(interval)
+        payload = self._get(
+            "/stock/candle",
+            {
+                "symbol": item.symbol,
+                "resolution": resolution,
+                "from": int(start.timestamp()),
+                "to": int(now.timestamp()),
+            },
+        )
+        candles = _latest_trading_day(_candles_from_finnhub(payload, timezone_name))
         return ChartData(
             item=item,
             candles=candles,
             interval=interval,
             range_label="Current or previous trading day",
-            source="Yahoo",
+            source="Finnhub",
         )
+
+    def _get(self, path: str, params: dict) -> dict:
+        token = self._require_token()
+        response = self.session.get(
+            f"{FINNHUB_BASE_URL}{path}",
+            params={**params, "token": token},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _require_token(self) -> str:
+        if not self.token:
+            raise ValueError("Missing FINNHUB_API_KEY. Set FINNHUB_API_KEY or FINNHUB_TOKEN before requesting stock data.")
+        return self.token
 
 
 def _float_or_none(value) -> float | None:
@@ -216,33 +234,85 @@ def _float_or_none(value) -> float | None:
         return None
 
 
-def _candles_from_yfinance(frame, timezone_name: str) -> list[Candle]:
-    if frame is None or frame.empty:
+def _timestamp_or_none(value) -> datetime | None:
+    try:
+        timestamp = int(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp <= 0:
+        return None
+    return datetime.fromtimestamp(timestamp, timezone.utc)
+
+
+def _empty_finnhub_quote(price: float | None, previous_close: float | None, timestamp: datetime | None) -> bool:
+    return price in {None, 0} and previous_close in {None, 0} and timestamp is None
+
+
+def _finnhub_resolution(interval: str) -> str:
+    normalized = interval.strip().lower()
+    if normalized.endswith("m"):
+        normalized = normalized[:-1]
+    if normalized in {"1", "5", "15", "30", "60", "d", "w", "m"}:
+        return normalized.upper() if normalized in {"d", "w", "m"} else normalized
+    return "5"
+
+
+def _stock_session(item: WatchlistItem, timestamp: datetime | None, price: float | None) -> tuple[str, str]:
+    if price is None:
+        return "Unavailable", ""
+    if timestamp is None:
+        return "Regular", ""
+    if item.type == "us":
+        local_time = timestamp.astimezone(ZoneInfo("America/New_York"))
+        if local_time.weekday() >= 5:
+            return "Closed", "latest"
+        clock = local_time.time()
+        if time(4, 0) <= clock < time(9, 30):
+            return "Pre", "extended"
+        if time(9, 30) <= clock <= time(16, 0):
+            return "Regular", ""
+        if time(16, 0) < clock <= time(20, 0):
+            return "After", "extended"
+        return "Closed", "latest"
+    if item.type == "hk":
+        local_time = timestamp.astimezone(ZoneInfo("Asia/Hong_Kong"))
+        if local_time.weekday() >= 5:
+            return "Closed", "latest"
+        clock = local_time.time()
+        if time(9, 30) <= clock < time(12, 0) or time(13, 0) <= clock <= time(16, 0):
+            return "Regular", ""
+        return "Closed", "latest"
+    return "Regular", ""
+
+
+def _candles_from_finnhub(payload: dict, timezone_name: str) -> list[Candle]:
+    if payload.get("s") != "ok":
         return []
     tz = ZoneInfo(timezone_name)
+    times = payload.get("t", [])
+    opens = payload.get("o", [])
+    highs = payload.get("h", [])
+    lows = payload.get("l", [])
+    closes = payload.get("c", [])
+    volumes = payload.get("v", [])
     candles: list[Candle] = []
-    for timestamp, row in frame.iterrows():
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.tz_localize(timezone.utc)
-        else:
-            timestamp = timestamp.tz_convert(timezone.utc)
-        volume_value = row.get("Volume")
+    for index, unix_seconds in enumerate(times):
+        volume = volumes[index] if index < len(volumes) else None
         candles.append(
             Candle(
-                timestamp=timestamp.to_pydatetime().astimezone(tz),
-                open=float(row["Open"]),
-                high=float(row["High"]),
-                low=float(row["Low"]),
-                close=float(row["Close"]),
-                volume=float(volume_value) if volume_value is not None else None,
+                timestamp=datetime.fromtimestamp(unix_seconds, timezone.utc).astimezone(tz),
+                open=float(opens[index]),
+                high=float(highs[index]),
+                low=float(lows[index]),
+                close=float(closes[index]),
+                volume=float(volume) if volume is not None else None,
             )
         )
     return candles
 
 
-def _latest_session_frame(frame):
-    if frame is None or frame.empty:
-        return frame
-    latest_date = frame.index[-1].date()
-    mask = [timestamp.date() == latest_date for timestamp in frame.index]
-    return frame.loc[mask]
+def _latest_trading_day(candles: list[Candle]) -> list[Candle]:
+    if not candles:
+        return []
+    latest_date = candles[-1].timestamp.date()
+    return [candle for candle in candles if candle.timestamp.date() == latest_date]

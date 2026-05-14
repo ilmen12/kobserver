@@ -10,11 +10,11 @@ Use this skill when the user wants to manage a market watchlist, view current pr
 
 Supported assets:
 
-- US stocks through Yahoo-compatible public data via `yfinance`.
-- Hong Kong stocks through Yahoo-compatible public data via `yfinance`.
+- US stocks through Finnhub.
+- Hong Kong stocks through Finnhub.
 - Crypto through Pyth public APIs.
 
-The skill is API-key free. Extended-hours stock data is best-effort. Use prefixed watchlist tokens such as `us:AAPL`, `hk:0700`, and `crypto:BTC`. Crypto symbols such as `crypto:BTC` normalize to `BTC/USD`.
+Stock data requires `FINNHUB_API_KEY` or `FINNHUB_TOKEN` in the environment. Crypto-only usage is API-key free. Stock session labels are best-effort. Use prefixed watchlist tokens such as `us:AAPL`, `hk:0700`, and `crypto:BTC`. Crypto symbols such as `crypto:BTC` normalize to `BTC/USD`.
 
 ## Commands
 

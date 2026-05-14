@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         quotes = []
         for item in items:
             provider = pyth_provider if item.type == "crypto" else stock_provider
-            source = "Pyth" if item.type == "crypto" else "Yahoo"
+            source = "Pyth" if item.type == "crypto" else "Finnhub"
             try:
                 quotes.append(provider.quote(item))
             except Exception as exc:
