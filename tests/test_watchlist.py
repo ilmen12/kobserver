@@ -50,3 +50,22 @@ def test_preserves_unknown_fields(tmp_path):
     item = store.list_items()[0]
 
     assert item.extra == {"custom": "kept"}
+
+
+def test_replace_all_preserves_order_and_overwrites_existing(tmp_path):
+    store = WatchlistStore(tmp_path)
+    store.add(WatchlistItem(type="us", symbol="OLD", display="OLD"))
+
+    store.replace_all(
+        [
+            WatchlistItem(type="us", symbol="AAPL", display="AAPL"),
+            WatchlistItem(type="crypto", symbol="BTC/USD", display="BTC"),
+            WatchlistItem(type="hk", symbol="0700.HK", display="0700.HK"),
+        ]
+    )
+
+    assert [(item.type, item.symbol) for item in store.list_items()] == [
+        ("us", "AAPL"),
+        ("crypto", "BTC/USD"),
+        ("hk", "0700.HK"),
+    ]

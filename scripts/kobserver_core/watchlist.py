@@ -37,6 +37,13 @@ class WatchlistStore:
         self._save_items(items)
         return True
 
+    def replace_all(self, items: list[WatchlistItem]) -> None:
+        now = datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds")
+        for item in items:
+            if item.created_at is None:
+                item.created_at = now
+        self._save_items(items)
+
     def remove(self, symbol: str, asset_type: str | None = None) -> list[tuple[str, str]]:
         needle = symbol.strip().upper()
         kept: list[WatchlistItem] = []

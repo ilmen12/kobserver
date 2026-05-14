@@ -9,7 +9,8 @@ from typing import Any
 from kobserver_core.models import WatchlistItem
 from kobserver_core.providers import PythProvider, StockProvider, quote_error
 from kobserver_core.rendering import render_chart_png, render_error_png, render_quotes_png
-from kobserver_core.symbols import COMMON_PYTH_FEEDS, normalize_symbol
+from kobserver_core.models import NormalizedSymbol
+from kobserver_core.symbols import COMMON_PYTH_FEEDS, normalize_symbol, parse_symbol_token
 from kobserver_core.watchlist import WatchlistStore
 
 
@@ -26,12 +27,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     add = subparsers.add_parser("add", help="Add a symbol to the watchlist.")
     add.add_argument("symbol")
-    add.add_argument("--type", choices=["us", "hk", "crypto"], required=True)
+    add.add_argument("--type", choices=["us", "hk", "crypto"])
     add.add_argument("--name")
 
     remove = subparsers.add_parser("remove", help="Remove a symbol from the watchlist.")
     remove.add_argument("symbol")
     remove.add_argument("--type", choices=["us", "hk", "crypto"])
+
+    replace = subparsers.add_parser("replace", help="Replace the watchlist with prefixed symbols.")
+    replace.add_argument("symbols", nargs="+")
 
     subparsers.add_parser("list", help="List watchlist items.")
 
@@ -57,27 +61,28 @@ def main(argv: list[str] | None = None) -> int:
     store = WatchlistStore(args.data_dir, timezone=args.timezone)
 
     if args.command == "add":
-        normalized = normalize_symbol(args.symbol, args.type)
-        name = args.name
-        if name is None and normalized.type == "crypto":
-            name = COMMON_PYTH_FEEDS.get(normalized.symbol, {}).get("name")
-        item = WatchlistItem(
-            type=normalized.type,
-            symbol=normalized.symbol,
-            display=normalized.display,
-            name=name,
-            pyth_id=normalized.pyth_id,
-        )
+        normalized = _normalize_cli_symbol(args.symbol, args.type)
+        item = _item_from_normalized(normalized, name=args.name)
         added = store.add(item)
         return _emit({"added": added, "item": _item_payload(item)}, args.json)
 
     if args.command == "remove":
-        removed = store.remove(args.symbol, args.type)
+        if args.type is None and ":" in args.symbol:
+            normalized = parse_symbol_token(args.symbol)
+            removed = store.remove(normalized.symbol, normalized.type)
+        else:
+            removed = store.remove(args.symbol, args.type)
         return _emit({"removed": [list(key) for key in removed]}, args.json)
 
     if args.command == "list":
         items = [_item_payload(item) for item in store.list_items()]
         return _emit({"count": len(items), "items": items}, args.json)
+
+    if args.command == "replace":
+        items = _items_from_prefixed_tokens(args.symbols)
+        store.replace_all(items)
+        payload_items = [_item_payload(item) for item in items]
+        return _emit({"replaced": True, "count": len(payload_items), "items": payload_items}, args.json)
 
     if args.command == "quotes":
         items = store.list_items()
@@ -111,16 +116,13 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(payload, args.json)
 
     if args.command == "chart":
-        item = _find_chart_item(store.list_items(), args.symbol, args.type)
+        item = _find_chart_item_for_input(store.list_items(), args.symbol, args.type)
         if item is None:
-            normalized_type = _infer_asset_type(args.symbol, args.type)
-            normalized = normalize_symbol(args.symbol, normalized_type)
-            item = WatchlistItem(
-                type=normalized.type,
-                symbol=normalized.symbol,
-                display=normalized.display,
-                pyth_id=normalized.pyth_id,
-            )
+            if args.type is None and ":" in args.symbol:
+                normalized = parse_symbol_token(args.symbol)
+            else:
+                normalized = normalize_symbol(args.symbol, args.type or _infer_asset_type(args.symbol, None))  # type: ignore[arg-type]
+            item = _item_from_normalized(normalized)
         provider = PythProvider() if item.type == "crypto" else StockProvider()
         try:
             chart_data = provider.chart(item, args.interval, args.timezone)
@@ -157,6 +159,37 @@ def _item_payload(item: WatchlistItem) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def _item_from_normalized(normalized: NormalizedSymbol, name: str | None = None) -> WatchlistItem:
+    if name is None and normalized.type == "crypto":
+        name = COMMON_PYTH_FEEDS.get(normalized.symbol, {}).get("name")
+    return WatchlistItem(
+        type=normalized.type,
+        symbol=normalized.symbol,
+        display=normalized.display,
+        name=name,
+        pyth_id=normalized.pyth_id,
+    )
+
+
+def _normalize_cli_symbol(symbol: str, asset_type: str | None) -> NormalizedSymbol:
+    if asset_type is None:
+        return parse_symbol_token(symbol)
+    return normalize_symbol(symbol, asset_type)  # type: ignore[arg-type]
+
+
+def _items_from_prefixed_tokens(tokens: list[str]) -> list[WatchlistItem]:
+    seen: set[tuple[str, str]] = set()
+    items: list[WatchlistItem] = []
+    for token in tokens:
+        normalized = parse_symbol_token(token)
+        key = (normalized.type, normalized.symbol)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(_item_from_normalized(normalized))
+    return items
+
+
 def _emit(payload: dict[str, Any], as_json: bool) -> int:
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -184,6 +217,17 @@ def _find_chart_item(items: list[WatchlistItem], symbol: str, asset_type: str | 
         if needle in {item.symbol.upper(), item.display.upper()}:
             return item
     return None
+
+
+def _find_chart_item_for_input(
+    items: list[WatchlistItem],
+    symbol: str,
+    asset_type: str | None,
+) -> WatchlistItem | None:
+    if asset_type is None and ":" in symbol:
+        normalized = parse_symbol_token(symbol)
+        return _find_chart_item(items, normalized.symbol, normalized.type)
+    return _find_chart_item(items, symbol, asset_type)
 
 
 def _infer_asset_type(symbol: str, explicit_type: str | None) -> str:

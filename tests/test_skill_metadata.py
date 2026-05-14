@@ -8,6 +8,7 @@ def test_skill_md_declares_kobserver_and_uv():
     assert "{baseDir}/scripts" in text
     assert "quotes" in text
     assert "chart" in text
+    assert "replace" in text
 
 
 def test_openai_yaml_exists():

@@ -1,6 +1,6 @@
 import pytest
 
-from kobserver_core.symbols import normalize_symbol, resolve_common_pyth_feed
+from kobserver_core.symbols import normalize_symbol, parse_symbol_token, resolve_common_pyth_feed
 
 
 def test_normalize_us_symbol():
@@ -37,3 +37,23 @@ def test_normalize_crypto_symbol(raw):
 
 def test_resolve_unknown_common_feed_returns_none():
     assert resolve_common_pyth_feed("NOTREAL/USD") is None
+
+
+@pytest.mark.parametrize(
+    ("token", "asset_type", "symbol", "display"),
+    [
+        ("us:aapl", "us", "AAPL", "AAPL"),
+        ("hk:700", "hk", "0700.HK", "0700.HK"),
+        ("crypto:btc", "crypto", "BTC/USD", "BTC"),
+    ],
+)
+def test_parse_prefixed_symbol_token(token, asset_type, symbol, display):
+    normalized = parse_symbol_token(token)
+    assert normalized.type == asset_type
+    assert normalized.symbol == symbol
+    assert normalized.display == display
+
+
+def test_parse_symbol_token_rejects_missing_prefix():
+    with pytest.raises(ValueError, match="market prefix"):
+        parse_symbol_token("AAPL")

@@ -76,9 +76,10 @@ kobserver/SKILL.md
 After installation, ask OpenClaw for tasks such as:
 
 ```text
-Use $kobserver to add BTC to my watchlist.
+Use $kobserver to add crypto:BTC to my watchlist.
+Use $kobserver to replace my watchlist with us:AAPL crypto:BTC hk:0700.
 Use $kobserver to show my watchlist as an image.
-Use $kobserver to render a K-line chart for AAPL.
+Use $kobserver to render a K-line chart for us:AAPL.
 ```
 
 ### Use The CLI Directly
@@ -109,17 +110,25 @@ uv run python kobserver.py --data-dir /tmp/kobserver-demo --json list
 
 ## Symbol Formats
 
+The recommended watchlist token format is:
+
+```text
+<market>:<symbol>
+```
+
+Supported market prefixes are `us`, `hk`, and `crypto`. Prefixes let mixed watchlists preserve the exact input order.
+
 US stocks:
 
 ```bash
-uv run python kobserver.py --json add AAPL --type us
+uv run python kobserver.py --json add us:AAPL
 ```
 
 Hong Kong stocks:
 
 ```bash
-uv run python kobserver.py --json add 0700 --type hk
-uv run python kobserver.py --json add 0700.HK --type hk
+uv run python kobserver.py --json add hk:0700
+uv run python kobserver.py --json add hk:0700.HK
 ```
 
 Both `0700` and `700` normalize to `0700.HK`.
@@ -127,11 +136,13 @@ Both `0700` and `700` normalize to `0700.HK`.
 Crypto:
 
 ```bash
-uv run python kobserver.py --json add BTC --type crypto
-uv run python kobserver.py --json add BTC/USD --type crypto
+uv run python kobserver.py --json add crypto:BTC
+uv run python kobserver.py --json add crypto:BTC/USD
 ```
 
-`BTC` normalizes to `BTC/USD`. Common bundled Pyth feeds include `BTC/USD`, `ETH/USD`, and `SOL/USD`.
+`crypto:BTC` normalizes to `BTC/USD`. Common bundled Pyth feeds include `BTC/USD`, `ETH/USD`, and `SOL/USD`.
+
+Legacy `--type` usage is still supported for single-symbol commands, for example `add AAPL --type us`.
 
 ## Usage
 
@@ -140,10 +151,18 @@ Run all examples from `scripts/`.
 ### Add Symbols
 
 ```bash
-uv run python kobserver.py --json add AAPL --type us
-uv run python kobserver.py --json add 0700 --type hk
-uv run python kobserver.py --json add BTC --type crypto
+uv run python kobserver.py --json add us:AAPL
+uv run python kobserver.py --json add hk:0700
+uv run python kobserver.py --json add crypto:BTC
 ```
+
+### Replace The Full Watchlist
+
+```bash
+uv run python kobserver.py --json replace us:AAPL crypto:BTC hk:0700 us:MSFT crypto:ETH
+```
+
+`replace` overwrites the current watchlist and preserves the mixed input order. All symbols passed to `replace` must include a market prefix.
 
 ### List The Watchlist
 
@@ -154,8 +173,8 @@ uv run python kobserver.py --json list
 ### Remove A Symbol
 
 ```bash
-uv run python kobserver.py --json remove BTC
-uv run python kobserver.py --json remove AAPL --type us
+uv run python kobserver.py --json remove crypto:BTC
+uv run python kobserver.py --json remove us:AAPL
 ```
 
 ### Render Watchlist Quotes
@@ -178,8 +197,8 @@ The image intentionally does not show a `Source` column. Source details remain i
 ### Render A Candlestick Chart
 
 ```bash
-uv run python kobserver.py --json chart AAPL --output /tmp/kobserver-aapl.png
-uv run python kobserver.py --json chart BTC --output /tmp/kobserver-btc.png
+uv run python kobserver.py --json chart us:AAPL --output /tmp/kobserver-aapl.png
+uv run python kobserver.py --json chart crypto:BTC --output /tmp/kobserver-btc.png
 ```
 
 Chart behavior:
@@ -229,9 +248,7 @@ Run a local CLI smoke test with isolated data:
 ```bash
 cd scripts
 tmp_dir="$(mktemp -d)"
-uv run python kobserver.py --data-dir "$tmp_dir" --json add AAPL --type us
-uv run python kobserver.py --data-dir "$tmp_dir" --json add 0700 --type hk
-uv run python kobserver.py --data-dir "$tmp_dir" --json add BTC --type crypto
+uv run python kobserver.py --data-dir "$tmp_dir" --json replace us:AAPL hk:0700 crypto:BTC
 uv run python kobserver.py --data-dir "$tmp_dir" --json list
 ```
 
@@ -240,9 +257,9 @@ Run a live Pyth smoke test:
 ```bash
 cd scripts
 tmp_dir="$(mktemp -d)"
-uv run python kobserver.py --data-dir "$tmp_dir" --json add BTC --type crypto
+uv run python kobserver.py --data-dir "$tmp_dir" --json add crypto:BTC
 uv run python kobserver.py --data-dir "$tmp_dir" --json quotes --output /tmp/kobserver-quotes.png
-uv run python kobserver.py --data-dir "$tmp_dir" --json chart BTC --output /tmp/kobserver-btc.png
+uv run python kobserver.py --data-dir "$tmp_dir" --json chart crypto:BTC --output /tmp/kobserver-btc.png
 ```
 
 ## Limitations

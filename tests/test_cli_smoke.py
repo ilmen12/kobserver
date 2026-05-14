@@ -9,4 +9,4 @@ def test_parser_has_expected_subcommands():
         if action.__class__.__name__ == "_SubParsersAction"
     ]
     assert len(subparsers) == 1
-    assert {"add", "remove", "list", "quotes", "chart"} <= set(subparsers[0].choices)
+    assert {"add", "remove", "list", "quotes", "chart", "replace"} <= set(subparsers[0].choices)

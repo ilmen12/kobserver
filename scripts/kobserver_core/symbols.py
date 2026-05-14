@@ -51,3 +51,14 @@ def normalize_symbol(raw: str, asset_type: AssetType) -> NormalizedSymbol:
         )
 
     raise ValueError(f"unsupported asset type: {asset_type}")
+
+
+def parse_symbol_token(token: str) -> NormalizedSymbol:
+    cleaned = token.strip()
+    if ":" not in cleaned:
+        raise ValueError(f"symbol token must include a market prefix like us:AAPL, hk:0700, or crypto:BTC: {token}")
+    prefix, raw_symbol = cleaned.split(":", 1)
+    asset_type = prefix.strip().lower()
+    if asset_type not in {"us", "hk", "crypto"}:
+        raise ValueError(f"unsupported market prefix: {prefix}")
+    return normalize_symbol(raw_symbol, asset_type)  # type: ignore[arg-type]

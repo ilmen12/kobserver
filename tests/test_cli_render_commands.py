@@ -68,3 +68,31 @@ def test_cli_chart_renders_error_png_for_empty_chart(tmp_path, monkeypatch, caps
     assert payload["symbol"] == "BTC"
     with Image.open(output) as image:
         assert image.format == "PNG"
+
+
+def test_cli_chart_accepts_prefixed_symbol_token(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "PythProvider", lambda: FakePythProvider())
+    data_dir = str(tmp_path / "data")
+    output = tmp_path / "chart.png"
+    cli.main(["--data-dir", data_dir, "replace", "crypto:BTC"])
+    capsys.readouterr()
+
+    assert cli.main(["--data-dir", data_dir, "--json", "chart", "crypto:BTC", "--output", str(output)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["symbol"] == "BTC"
+    with Image.open(output) as image:
+        assert image.format == "PNG"
+
+
+def test_cli_chart_prefixed_token_works_without_watchlist_item(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "PythProvider", lambda: FakePythProvider())
+    data_dir = str(tmp_path / "data")
+    output = tmp_path / "chart.png"
+
+    assert cli.main(["--data-dir", data_dir, "--json", "chart", "crypto:BTC", "--output", str(output)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["symbol"] == "BTC"
+    with Image.open(output) as image:
+        assert image.format == "PNG"
