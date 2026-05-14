@@ -1,0 +1,21 @@
+[project]
+name = "kobserver"
+version = "0.1.0"
+description = "OpenClaw skill CLI for market watchlists and chart rendering"
+requires-python = ">=3.11"
+dependencies = [
+  "matplotlib>=3.8",
+  "mplfinance>=0.12.10b0",
+  "pillow>=10",
+  "requests>=2.31",
+  "yfinance>=0.2.40"
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["../tests"]

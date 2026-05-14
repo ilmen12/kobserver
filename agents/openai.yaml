@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kobserver"
+  short_description: "Render watchlist quotes and market charts."
+  default_prompt: "Use $kobserver to show my market watchlist as an image."
